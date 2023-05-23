@@ -14,28 +14,34 @@ async function main() {
   console.log(`lending pool address : ${ILendingPool.address}`);
 
   // approve the weth to lendingpool
-  const erc20approved = await approveERC20(
-    wethAddress,
-    AMOUNT,
-    ILendingPool.address,
-    deployer
-  );
+  await approveERC20(wethAddress, AMOUNT, ILendingPool.address, deployer);
 
   //   deposit collateral
   await ILendingPool.deposit(wethAddress, AMOUNT, deployer, 0);
   console.log("deposited....");
 
   const { totalCollateralETH, totalDebtETH, availableBorrowsETH } =
-    await ILendingPool.getUserAccountData(deployer);
-  console.log(`total collateral in eth : ${totalCollateralETH}`);
-  console.log(`total DEbt in eth : ${totalDebtETH}`);
-  console.log(`total availableBorrows in eth : ${availableBorrowsETH}`);
+    await getBorrowData(ILendingPool, deployer);
 
   // getting dai/eth price
   const Daiprice = await getDaiEthFeed();
   const DaitoBorrow =
     availableBorrowsETH.toString() * 0.95 * (1 / Daiprice.toNumber());
   console.log(`Dai which is available to borrow : ${DaitoBorrow}`);
+  const DaitoBorrowInEth = ethers.utils.parseEther(DaitoBorrow.toString());
+  // borrow dai
+  await borrowDai(ILendingPool, DaitoBorrowInEth, deployer);
+  await getBorrowData(ILendingPool, deployer);
+
+  // repay dai and burns the equivalent tokens
+  await approveERC20(
+    networkConfig[network.config.chainId].DaiAddress,
+    DaitoBorrowInEth,
+    ILendingPool.address,
+    deployer
+  );
+  await repayDai(ILendingPool, deployer, DaitoBorrowInEth);
+  await getBorrowData(ILendingPool, deployer);
 }
 
 //-------------------------- get the lendingpool contract
@@ -73,8 +79,19 @@ async function getDaiEthFeed() {
   return feed;
 }
 
+// -------------------getAccountBorrow data
+async function getBorrowData(ILendingPool, deployer) {
+  const { totalCollateralETH, totalDebtETH, availableBorrowsETH } =
+    await ILendingPool.getUserAccountData(deployer);
+  console.log(`total collateral in eth : ${totalCollateralETH}`);
+  console.log(`total DEbt in eth : ${totalDebtETH}`);
+  console.log(`total availableBorrows in eth : ${availableBorrowsETH}`);
+
+  return { totalCollateralETH, totalDebtETH, availableBorrowsETH };
+}
+
 // ---------------------borrow the dai from aave
-async function borrowDai(IlendingPool, DaiAmount, account) {
+async function borrowDai(ILendingPool, DaiAmount, account) {
   await ILendingPool.borrow(
     networkConfig[network.config.chainId].DaiAddress,
     DaiAmount,
@@ -83,6 +100,16 @@ async function borrowDai(IlendingPool, DaiAmount, account) {
     account
   );
   console.log("you h've borrowed.....");
+}
+
+async function repayDai(ILendingPool, account, daiToRepay) {
+  const amountOfToken = ILendingPool.repay(
+    networkConfig[network.config.chainId].DaiAddress,
+    daiToRepay,
+    1,
+    account
+  );
+  console.log(`total amount of Dai repay : ${amountOfToken}`);
 }
 
 main()
